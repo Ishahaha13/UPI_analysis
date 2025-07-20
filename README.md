@@ -6,7 +6,7 @@ This repository contains a comprehensive data-driven analysis of Unified Payment
 
 You can view the complete analysis in the PDF report here:
 
-[**Report**]((https://ishahaha13.github.io/UPI_analysis/))
+[**Report**](https://ishahaha13.github.io/UPI_analysis/)
 
 ## Key Analyses
 
