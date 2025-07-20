@@ -1,0 +1,198 @@
+---
+title: "UPI Data Analysis Report"
+author: "Isha Tanwar"
+date: "July 5, 2025"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: united
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(kableExtra)
+library(scales)
+```
+
+## Introduction
+This report explores trends in Unified Payments Interface (UPI) transactions in India, analyzing volume, value, bank adoption, efficiency, and seasonality from 2016 to mid-2025.
+
+## Data Preparation
+```{r}
+upi_data <- read.csv("upi_monthly.csv")
+
+upi_data <- upi_data %>%
+  mutate(month = parse_date(Month, format = "%b-%y"),
+         volume_in_mn = as.numeric(str_remove_all(Volume..in.Mn., ",")),
+         value_in_cr = as.numeric(str_remove_all(Value..in.Cr.., ",")),
+         no_of_banks_live_on_upi = as.integer(No..of.Banks.live.on.UPI)) %>%
+  select(-Month, -No..of.Banks.live.on.UPI, -Value..in.Cr.., -Volume..in.Mn.)
+```
+
+### Trend Analysis: Volume & Value Over Time
+```{r}
+volume_and_value <- upi_data %>%
+  ggplot(aes(month)) +
+  geom_line(aes(y = volume_in_mn, color = "Volume (in Mn)")) +
+  geom_line(aes(y = value_in_cr / 100, color = "Value (in ₹ Cr)")) +
+  scale_y_continuous(name = "Volume (in Mn)", sec.axis = sec_axis(~. * 100, name = "Value (in ₹ Cr)")) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
+  labs(title = "UPI Monthly Volume and Value Trends (2016–2025)", x = "Year", colour = "Legend") +
+  theme(panel.background = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))
+volume_and_value
+```
+
+### YoY Growth Analysis
+```{r}
+upi_yoy <- upi_data %>%
+  mutate(year = year(month)) %>%
+  group_by(year) %>%
+  summarise(total_volume = sum(volume_in_mn, na.rm = TRUE),
+            total_value = sum(value_in_cr, na.rm = TRUE)) %>%
+  arrange(year) %>%
+  mutate(volume_yoy_growth = (total_volume/lag(total_volume) - 1) * 100,
+         value_yoy_growth = (total_value/lag(total_value) - 1) * 100)
+```
+
+### Volume YoY
+```{r}
+volume_yoy_growth <- upi_yoy %>%
+  ggplot(aes(x = factor(year), y = volume_yoy_growth)) +
+  geom_col(fill = "#9c6787") +
+  geom_text(aes(label = paste0(round(volume_yoy_growth, 1), "%")), vjust = -0.5) +
+  labs(title = "YoY Growth in UPI Volume", x = "Year", y = "Growth (%)", caption = "Note: 2025 data is partial (up to June); YoY growth may appear negative.") +
+  theme(panel.background = element_blank(), plot.caption = element_text(hjust = 0, face = "italic"))
+volume_yoy_growth
+```
+
+### Value YoY
+```{r}
+value_yoy_growth <- upi_yoy %>%
+  ggplot(aes(x = factor(year), y = value_yoy_growth)) +
+  geom_col(fill = "#20B2AA") +
+  geom_text(aes(label = paste0(round(value_yoy_growth, 1), "%")), vjust = -0.5) +
+  labs(title = "YoY Growth in UPI Transaction Value", x = "Year", y = "Growth (%)", caption = "Note: 2025 data is partial (up to June); YoY growth may appear negative.") +
+  theme(panel.background = element_blank(), plot.caption = element_text(hjust = 0, face = "italic"))
+value_yoy_growth
+```
+
+### COVID Impact Analysis
+```{r}
+upi_data <- upi_data %>%
+  mutate(covid_period = case_when(
+    month >= as.Date("2018-04-01") & month <= as.Date("2020-02-01") ~ "Pre-COVID",
+    month >= as.Date("2020-06-01") ~ "Post-COVID",
+    TRUE ~ NA_character_ ))
+
+covid_summary <- upi_data %>%
+  filter(!is.na(covid_period)) %>%
+  group_by(covid_period) %>%
+  summarise(avg_volume = mean(volume_in_mn),
+            avg_value = mean(value_in_cr),
+            avg_banks = mean(no_of_banks_live_on_upi))
+
+covid_summary %>%
+  kbl(caption = "Comparison of UPI Metrics: Pre vs Post COVID") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+```{r}
+upi_data_plot <- upi_data %>%
+  filter(!is.na(covid_period)) %>%
+  ggplot(aes(x = month, y = volume_in_mn, color = factor(covid_period))) +
+  geom_line(size = 0.8) +
+  labs(title = "UPI Volume Trends: Pre vs Post COVID", x = "Month", y = "Volume (in Mn)", color = "Period") +
+  theme(panel.background = element_blank())
+upi_data_plot
+```
+
+### Bank-wise Relationship Analysis
+```{r}
+volume_and_banks <- upi_data %>%
+  ggplot(aes(x = no_of_banks_live_on_upi, y = volume_in_mn)) +
+  geom_point(color = "#4a6985", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "#854a5b") +
+  labs(title = "Relationship Between No. of Banks on UPI and Volume", x = "No. of Banks Live on UPI", y = "UPI Volume (Mn)") +
+  theme(panel.background = element_blank())
+volume_and_banks
+
+value_and_banks <- upi_data %>%
+  ggplot(aes(x = no_of_banks_live_on_upi, y = value_in_cr / 100)) +
+  geom_point(color = "#4a8579", alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE, color = "#996272") +
+  labs(title = "Relationship Between No. of Banks on UPI and Transaction Value", x = "No. of Banks Live on UPI", y = "UPI Value (in ₹ Crores ÷ 100)") +
+  scale_y_continuous(labels = comma_format()) +
+  theme(panel.background = element_blank())
+value_and_banks
+```
+
+### Correlation Output
+```{r}
+cor_banks_volume <- cor(upi_data$no_of_banks_live_on_upi, upi_data$volume_in_mn, use = "complete.obs")
+cor_banks_value <- cor(upi_data$no_of_banks_live_on_upi, upi_data$value_in_cr, use = "complete.obs")
+
+cor_df <- tibble(
+  Metric = c("Banks vs Volume", "Banks vs Value"),
+  Correlation = c(cor_banks_volume, cor_banks_value))
+
+cor_df %>%
+  kbl(caption = "Correlation between Banks on UPI and Transaction Metrics") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Monthly Seasonality
+```{r}
+upi_data <- upi_data %>%
+  mutate(monthly_only = format(month, "%B"),
+         month_num = as.numeric(format(month, "%m")))
+
+monthly_trends_long <- upi_data %>%
+  group_by(monthly_only, month_num) %>%
+  summarise(`Average Volume (in Mn)` = mean(volume_in_mn),
+            `Average Value (in Cr)` = mean(value_in_cr)) %>%
+  arrange(month_num) %>%
+  pivot_longer(cols = c(`Average Volume (in Mn)`, `Average Value (in Cr)`),
+               names_to = "Metric", values_to = "Average")
+
+monthly_trends <- monthly_trends_long %>%
+  ggplot(aes(x = reorder(monthly_only, month_num), y = Average)) +
+  geom_col(fill = "#638199") +
+  facet_wrap(~Metric, scales = "free_y") +
+  labs(title = "Monthly Seasonality in UPI Transactions", x = "Month", y = "Average (Monthly)") +
+  theme(panel.background = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_y_continuous(labels = comma_format())
+monthly_trends
+```
+
+### UPI Efficiency per Bank
+```{r}
+upi_data <- upi_data %>%
+  mutate(volume_per_bank = volume_in_mn / no_of_banks_live_on_upi,
+         value_per_bank = value_in_cr / no_of_banks_live_on_upi)
+
+upi_per_bank_long <- upi_data %>%
+  select(month, volume_per_bank, value_per_bank) %>%
+  pivot_longer(cols = c("volume_per_bank", "value_per_bank"),
+               names_to = "Metric", values_to = "PerBankValue")
+
+upi_per_bank <- upi_per_bank_long %>%
+  ggplot(aes(x = month, color = Metric)) +
+  geom_line(data = subset(upi_per_bank_long, Metric == "value_per_bank"),
+            aes(y = PerBankValue, colour = "Value Per Bank (Cr)"), size = 0.8) +
+  geom_line(data = subset(upi_per_bank_long, Metric == "volume_per_bank"),
+            aes(y = PerBankValue * 100, colour = "Volume Per Bank (Mn)"), size = 0.8) +
+  scale_y_continuous(name = "Value per Bank (Cr)",
+                     sec.axis = sec_axis(~ . / 100, name = "Volume per Bank (Mn)"),
+                     labels = comma_format()) +
+  labs(title = "UPI Efficiency: Transactions Per Bank Over Time", x = "Month", color = "Metric") +
+  theme(panel.background = element_blank())
+upi_per_bank
+```
+
+### Conclusion
+This report presents a comprehensive data-driven analysis of UPI adoption, transaction growth, efficiency, and COVID-era shifts in behavior.
